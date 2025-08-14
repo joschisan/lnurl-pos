@@ -1,0 +1,19 @@
+[package]
+name = "lnurl_pos_flutter_bridge"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[dependencies]
+flutter_rust_bridge = "=2.10.0"
+lightning-invoice = { version = "0.33.2", features = ["serde"] }
+lnurl-pay = "0.6.0"
+reqwest = { version = "0.12.23", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1.0.219", features = ["derive"] }
+tokio = { version = "1.0", features = ["time"] }
+
