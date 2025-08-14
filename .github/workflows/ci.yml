@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  dart-fmt:
+    name: Dart Format Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.32.7'
+        channel: 'stable'
+    - run: flutter pub get
+    - run: dart format --set-exit-if-changed .
+
+  rust-fmt:
+    name: Rust Format Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
+    - run: cargo fmt --all -- --check
+      working-directory: rust
+
+  rust-clippy:
+    name: Rust Clippy Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+    - run: cargo clippy --all-targets --all-features -- -D warnings
+      working-directory: rust 

@@ -1,0 +1,366 @@
+use std::collections::BTreeMap;
+use std::fs;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use lightning_invoice::Bolt11Invoice;
+use lnurl_pay::LnUrl;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Serialize, Deserialize)]
+#[flutter_rust_bridge::frb]
+pub struct Payment {
+    pub amount_fiat: i64,
+    pub amount_msat: i64,
+    pub created_at: i64, // Unix timestamp
+}
+
+#[flutter_rust_bridge::frb(opaque)]
+pub struct LnUrlWrapper(LnUrl);
+
+#[flutter_rust_bridge::frb(sync)]
+pub fn parse_lnurl(lnurl: &str) -> Result<LnUrlWrapper, String> {
+    if let Some(stripped) = lnurl.strip_prefix("lightning:") {
+        return parse_lnurl(stripped);
+    }
+
+    if let Some(stripped) = lnurl.strip_prefix("lnurl:") {
+        return parse_lnurl(stripped);
+    }
+
+    LnUrl::from_str(lnurl)
+        .map(LnUrlWrapper)
+        .map_err(|_| "Invalid LNURL".to_string())
+}
+
+#[flutter_rust_bridge::frb(opaque)]
+pub struct LnurlClient {
+    lnurl: LnUrl,
+    currency_code: String,
+    currency_symbol: String,
+    currency_name: String,
+    db_conn: Arc<Mutex<Connection>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LnurlClientConfig {
+    lnurl: LnUrl,
+    currency_code: String,
+    currency_symbol: String,
+    currency_name: String,
+}
+
+fn init_database(data_dir: &str) -> Connection {
+    let conn = Connection::open(format!("{data_dir}/data.sqlite")).unwrap();
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            amount_fiat INTEGER NOT NULL,
+            amount_msat INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    )
+    .unwrap();
+
+    conn
+}
+
+impl LnurlClient {
+    /// Create a new lnurl client instance
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn persist(
+        data_dir: &str,
+        lnurl: &LnUrlWrapper,
+        currency_code: &str,
+        currency_symbol: &str,
+        currency_name: &str,
+    ) {
+        let config = LnurlClientConfig {
+            lnurl: lnurl.0.clone(),
+            currency_code: currency_code.to_string(),
+            currency_symbol: currency_symbol.to_string(),
+            currency_name: currency_name.to_string(),
+        };
+
+        let config = serde_json::to_string(&config).unwrap();
+
+        fs::write(format!("{data_dir}/config.json"), config).unwrap();
+    }
+
+    /// Load the lnurl client from the config file
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn load(data_dir: &str) -> Option<Self> {
+        let config = fs::read_to_string(format!("{data_dir}/config.json")).ok()?;
+
+        let config: LnurlClientConfig = serde_json::from_str(&config).ok()?;
+
+        Some(Self {
+            lnurl: config.lnurl,
+            currency_code: config.currency_code,
+            currency_symbol: config.currency_symbol,
+            currency_name: config.currency_name,
+            db_conn: Arc::new(Mutex::new(init_database(data_dir))),
+        })
+    }
+
+    /// Get an invoice for a given amount in minor units (e.g., cents)
+    #[flutter_rust_bridge::frb]
+    pub async fn resolve(&self, amount_fiat: i64) -> Result<Invoice, String> {
+        let (invoice, verify) = tokio::time::timeout(
+            Duration::from_secs(30),
+            resolve_amount_with_currency_code(
+                self.lnurl.endpoint(),
+                self.currency_code.clone(),
+                amount_fiat,
+            ),
+        )
+        .await
+        .map_err(|_| "Request timeout".to_string())??;
+
+        Ok(Invoice {
+            invoice,
+            verify,
+            amount_fiat,
+            db_conn: self.db_conn.clone(),
+        })
+    }
+
+    /// List all known successful payments
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn list_payments(&self) -> Vec<Payment> {
+        self.db_conn
+            .lock()
+            .unwrap()
+            .prepare("SELECT * FROM payments ORDER BY id DESC")
+            .unwrap()
+            .query_map([], |row| {
+                Ok(Payment {
+                    amount_fiat: row.get(1)?,
+                    amount_msat: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .unwrap()
+            .map(|p| p.unwrap())
+            .collect()
+    }
+
+    /// Delete all known successful payments
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn delete_payments(&self) {
+        self.db_conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM payments", [])
+            .unwrap();
+    }
+
+    /// Sum the amounts in fiat over known history of payments
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn sum_amounts_fiat(&self) -> i64 {
+        self.list_payments().iter().map(|p| p.amount_fiat).sum()
+    }
+
+    /// Sum the amounts in millisatoshis over known history of payments
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn sum_amounts_msat(&self) -> i64 {
+        self.list_payments().iter().map(|p| p.amount_msat).sum()
+    }
+
+    /// Get the currency code
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn currency_code(&self) -> String {
+        self.currency_code.clone()
+    }
+
+    /// Get the currency symbol
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn currency_symbol(&self) -> String {
+        self.currency_symbol.clone()
+    }
+
+    /// Get the currency name
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn currency_name(&self) -> String {
+        self.currency_name.clone()
+    }
+}
+
+#[flutter_rust_bridge::frb(opaque)]
+pub struct Invoice {
+    invoice: Bolt11Invoice,
+    verify: String,
+    amount_fiat: i64,
+    db_conn: Arc<Mutex<Connection>>,
+}
+
+impl Invoice {
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn raw(&self) -> String {
+        self.invoice.to_string()
+    }
+
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn amount_msat(&self) -> i64 {
+        self.invoice.amount_milli_satoshis().unwrap() as i64
+    }
+
+    #[flutter_rust_bridge::frb]
+    pub async fn verify_payment(&self) -> Result<(), String> {
+        loop {
+            if let Ok(response) = self.fetch_response().await {
+                match response {
+                    VerifyResponse::Ok(success) => {
+                        if success.settled {
+                            let created_at = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as i64;
+
+                            self.db_conn.lock().unwrap().execute(
+                                "INSERT INTO payments (amount_fiat, amount_msat, created_at) VALUES (?1, ?2, ?3)",
+                                [self.amount_fiat, self.amount_msat(), created_at],
+                            ).unwrap();
+
+                            return Ok(());
+                        }
+                    }
+                    VerifyResponse::Error(error) => return Err(error.reason.clone()),
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    async fn fetch_response(&self) -> Result<VerifyResponse, String> {
+        reqwest::get(&self.verify)
+            .await
+            .map_err(|_| "Failed to fetch verify callback response".to_string())?
+            .json::<VerifyResponse>()
+            .await
+            .map_err(|_| "Failed to parse verify callback response".to_string())
+    }
+}
+
+#[derive(Deserialize, Clone)]
+struct FediPriceResponse {
+    prices: BTreeMap<String, ExchangeRate>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ExchangeRate {
+    rate: f64,
+}
+
+#[derive(Deserialize, Clone)]
+struct LnUrlPayResponse {
+    callback: String,
+    #[serde(alias = "minSendable")]
+    min_sendable: u64,
+    #[serde(alias = "maxSendable")]
+    max_sendable: u64,
+}
+
+#[derive(Deserialize, Clone)]
+struct LnUrlPayInvoiceResponse {
+    pr: Bolt11Invoice,
+    verify: String,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(tag = "status")]
+pub enum VerifyResponse {
+    #[serde(rename = "OK")]
+    Ok(VerifySuccess),
+    #[serde(rename = "ERROR")]
+    Error(VerifyError),
+}
+
+#[derive(Deserialize, Clone)]
+pub struct VerifySuccess {
+    pub settled: bool,
+    pub preimage: Option<String>,
+    pub pr: String,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct VerifyError {
+    pub reason: String,
+}
+
+async fn resolve_amount_with_currency_code(
+    endpoint: String,
+    currency_code: String,
+    amount_fiat: i64,
+) -> Result<(Bolt11Invoice, String), String> {
+    let response = reqwest::get("https://price-feed.dev.fedibtc.com/latest")
+        .await
+        .map_err(|_| "Failed to fetch exchange rates".to_string())?
+        .json::<FediPriceResponse>()
+        .await
+        .map_err(|_| "Failed to parse exchange rates".to_string())?;
+
+    // Step 1: Convert minor units to major units (e.g., 1234 cents → 12.34 EUR)
+    let amount_fiat = amount_fiat as f64 / 100.0;
+
+    // Step 2: Convert currency to USD (via exchange rate)
+    let amount_in_usd = if currency_code == "USD" {
+        amount_fiat
+    } else {
+        let currency_to_usd_rate = response
+            .prices
+            .get(&format!("{currency_code}/USD"))
+            .ok_or("Selected currency not supported".to_string())?
+            .rate;
+
+        amount_fiat * currency_to_usd_rate
+    };
+
+    // Step 3: Convert USD to BTC
+    let usd_to_btc_rate = response
+        .prices
+        .get("BTC/USD")
+        .ok_or("BTC/USD rate not found".to_string())?
+        .rate;
+
+    let amount_in_btc = amount_in_usd / usd_to_btc_rate;
+
+    // Step 4: Convert BTC to millisatoshis (1 BTC = 100,000,000,000 msat)
+    let amount_msat = (amount_in_btc * 100_000_000_000.0).round() as u64;
+
+    let response = reqwest::get(endpoint)
+        .await
+        .map_err(|_| "Failed to fetch LNURL response".to_string())?
+        .json::<LnUrlPayResponse>()
+        .await
+        .map_err(|_| "Failed to parse LNURL response".to_string())?;
+
+    if amount_msat < response.min_sendable {
+        return Err("Amount too low".to_string());
+    }
+
+    if amount_msat > response.max_sendable {
+        return Err("Amount too high".to_string());
+    }
+
+    let callback_url = format!("{}?amount={}", response.callback, amount_msat);
+
+    let response = reqwest::get(callback_url)
+        .await
+        .map_err(|_| "Failed to fetch LNURL callback response".to_string())?
+        .json::<LnUrlPayInvoiceResponse>()
+        .await
+        .map_err(|_| "Failed to parse LNURL callback response".to_string())?;
+
+    if response.pr.amount_milli_satoshis().is_none() {
+        return Err("Invoice amount is not set".to_string());
+    }
+
+    Ok((response.pr, response.verify))
+}
