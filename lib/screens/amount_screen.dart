@@ -232,14 +232,15 @@ class _AmountScreenState extends State<AmountScreen> {
     ).map((invoice) {
       if (!mounted) return;
 
-      setState(() {
-        _amountMinorUnits = 0;
-      });
-
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => DisplayInvoiceScreen(invoice: invoice),
+          builder:
+              (context) => DisplayInvoiceScreen(
+                currency: _currency,
+                amountMinorUnits: _amountMinorUnits,
+                invoice: invoice,
+              ),
         ),
       );
     });

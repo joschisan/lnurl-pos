@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:currency_picker/currency_picker.dart';
 import '../widgets/qr_code_with_copy.dart';
-import '../widgets/amount_display.dart';
 import '../bridge_generated.dart/lib.dart';
 
 enum PaymentStatus { pending, paid, failed }
 
 class DisplayInvoiceScreen extends StatefulWidget {
+  final Currency currency;
+  final int amountMinorUnits;
   final Invoice invoice;
 
-  const DisplayInvoiceScreen({super.key, required this.invoice});
+  const DisplayInvoiceScreen({
+    super.key,
+    required this.currency,
+    required this.amountMinorUnits,
+    required this.invoice,
+  });
 
   @override
   State<DisplayInvoiceScreen> createState() => _DisplayInvoiceScreenState();
@@ -138,8 +146,26 @@ class _DisplayInvoiceScreenState extends State<DisplayInvoiceScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            AmountDisplay(widget.invoice.amountSats()),
-            const SizedBox(height: 24),
+            // Fiat amount display (prominent)
+            Text(
+              '${widget.currency.symbol}${NumberFormat('#,##0.00').format(widget.amountMinorUnits / 100)}',
+              style: const TextStyle(
+                fontSize: 48,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            // Sats amount display (smaller, orange)
+            Text(
+              '${NumberFormat('#,###').format(widget.invoice.amountSats())} sats',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w500,
+                color: Colors.orange,
+              ),
+              textAlign: TextAlign.center,
+            ),
             QrCodeWithCopy(
               data: widget.invoice.raw(),
               copyMessage: 'Invoice copied to clipboard',

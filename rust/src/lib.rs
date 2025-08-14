@@ -2,7 +2,6 @@ use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
 use lightning_invoice::Bolt11Invoice;
 use lnurl_pay::LnUrl;
-
 use serde::Deserialize;
 
 #[flutter_rust_bridge::frb(opaque)]
@@ -34,12 +33,16 @@ impl LnurlClient {
         amount_minor_units: u32,
         currency_code: String,
     ) -> Result<Invoice, String> {
-        let (invoice, verify) = resolve_amount_with_currency_code(
-            self.lnurl.endpoint(),
-            amount_minor_units,
-            currency_code,
+        let (invoice, verify) = tokio::time::timeout(
+            Duration::from_secs(5),
+            resolve_amount_with_currency_code(
+                self.lnurl.endpoint(),
+                amount_minor_units,
+                currency_code,
+            ),
         )
-        .await?;
+        .await
+        .map_err(|_| "Request timeout".to_string())??;
 
         Ok(Invoice { invoice, verify })
     }
