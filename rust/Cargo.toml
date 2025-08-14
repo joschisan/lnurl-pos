@@ -1,0 +1,24 @@
+[package]
+name = "cashup_flutter_bridge"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[dependencies]
+bitcoin_hashes = "0.14.0"
+chrono = "0.4.41"
+flutter_rust_bridge = "=2.10.0"
+lightning-invoice = { version = "0.33.2", features = ["serde"] }
+lnurl-pay = "0.6.0"
+reqwest = { version = "0.12.23", features = ["json", "rustls-tls"], default-features = false }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.142"
+hex-conservative = "1.0.0"
+tokio = { version = "1.0", features = ["time", "macros"] }
+

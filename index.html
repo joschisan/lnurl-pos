@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Cashup - Lightning Terminal</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            bg: "#0a0a0a",
+                            surface: "#141414",
+                            border: "#262626",
+                            accent: "#f97316",
+                            "accent-dim": "#ea580c",
+                        },
+                    },
+                },
+            };
+        </script>
+        <style>
+            @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+            body {
+                font-family: "Inter", sans-serif;
+            }
+            .mono {
+                font-family: "JetBrains Mono", monospace;
+            }
+        </style>
+    </head>
+    <body class="bg-bg text-gray-100 min-h-screen">
+        <!-- Header -->
+        <header class="border-b border-border">
+            <div
+                class="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between"
+            >
+                <div class="flex items-center gap-2">
+                    <span class="text-xl font-semibold">Cashup</span>
+                    <span
+                        class="text-xs mono text-gray-500 bg-surface px-2 py-0.5 rounded"
+                        >v0.1.0</span
+                    >
+                </div>
+                <a
+                    href="https://github.com/joschisan/cashup"
+                    class="text-gray-400 hover:text-white transition-colors text-sm"
+                >
+                    GitHub
+                </a>
+            </div>
+        </header>
+
+        <!-- Hero -->
+        <main class="max-w-3xl mx-auto px-6 py-16">
+            <section class="mb-16">
+                <h1 class="text-4xl font-semibold mb-4">Lightning Terminal</h1>
+                <p class="text-xl text-gray-400 leading-relaxed mb-8">
+                    The Cashup Terminal lets you scan your LNURL payment code,
+                    enter amounts in your local currency, and receive payments
+                    with real-time verification. Your payment history is tracked
+                    in a local database and can be exported as a CSV at any
+                    time. You can use this terminal to connect to any LNURL
+                    compatible Lightning wallet such as Conduit or Blink.
+                </p>
+                <a
+                    href="https://github.com/joschisan/cashup/releases/download/latest/cashup.apk"
+                    class="inline-flex items-center gap-2 bg-accent hover:bg-accent-dim text-white font-medium px-5 py-2.5 rounded-lg transition-colors"
+                >
+                    <svg
+                        class="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                        />
+                    </svg>
+                    Download for Android
+                </a>
+            </section>
+
+            <!-- What is LNURL -->
+            <section class="mb-16">
+                <h2 class="text-lg font-medium mb-4 text-gray-300">
+                    What is LNURL?
+                </h2>
+                <p class="text-gray-400 leading-relaxed">
+                    LNURL is a protocol that simplifies Lightning payments by
+                    defining a protocol for third parties to generate invoices
+                    from your wallet on demand. Cashup Terminal can use any
+                    LNURL that supports the LUD21 extension to generate invoices
+                    and verify whether they have been paid.
+                </p>
+            </section>
+        </main>
+    </body>
+</html>
