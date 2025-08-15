@@ -35,6 +35,11 @@ android {
             keyPassword = keystoreProperties["keyPassword"] as String? ?: ""
             storeFile = keystoreProperties["storeFile"]?.let { file("../$it") }
             storePassword = keystoreProperties["storePassword"] as String? ?: ""
+            // Respect explicit storeType if provided (e.g., JKS or PKCS12)
+            val ksType = keystoreProperties["storeType"] as String?
+            if (!ksType.isNullOrBlank()) {
+                storeType = ksType
+            }
         }
     }
 
