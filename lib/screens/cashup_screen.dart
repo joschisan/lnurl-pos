@@ -189,38 +189,40 @@ class _CashupScreenState extends State<CashupScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Summary section
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Summary section
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: AmountDisplay(
+                amountFiat: widget.lnurlClient.sumAmountsFiat(),
+                amountSats:
+                    widget.lnurlClient.sumAmountsMsat() ~/
+                    1000, // Convert msat to sats
+                currencySymbol: widget.lnurlClient.currencySymbol(),
+              ),
             ),
-            child: AmountDisplay(
-              amountFiat: widget.lnurlClient.sumAmountsFiat(),
-              amountSats:
-                  widget.lnurlClient.sumAmountsMsat() ~/
-                  1000, // Convert msat to sats
-              currencySymbol: widget.lnurlClient.currencySymbol(),
+            // Payment list
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: payments.length,
+                itemBuilder: (context, index) {
+                  final payment = payments[index];
+                  return buildPaymentTile(payment);
+                },
+              ),
             ),
-          ),
-          // Payment list
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: payments.length,
-              itemBuilder: (context, index) {
-                final payment = payments[index];
-                return buildPaymentTile(payment);
-              },
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

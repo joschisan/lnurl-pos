@@ -52,49 +52,54 @@ class CurrencyScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: currencies.length,
-        itemBuilder: (context, index) {
-          final currency = currencies[index];
-          return Card(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 8,
-              ),
-              leading: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.orange,
-                  borderRadius: BorderRadius.circular(8),
+      body: SafeArea(
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: currencies.length,
+          itemBuilder: (context, index) {
+            final currency = currencies[index];
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
                 ),
-                child: Text(
-                  currency.code,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                leading: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orange,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    currency.code,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
-              title: Text(
-                currency.name,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
+                title: Text(
+                  currency.name,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
+                trailing: const Icon(
+                  Icons.arrow_forward_ios,
+                  size: 18,
+                  color: Colors.white54,
+                ),
+                onTap: () => _showConfirmationDrawer(context, currency),
               ),
-              trailing: const Icon(
-                Icons.arrow_forward_ios,
-                size: 18,
-                color: Colors.white54,
-              ),
-              onTap: () => _showConfirmationDrawer(context, currency),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -106,87 +111,91 @@ class CurrencyScreen extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder:
-          (context) => Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Currency display
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.orange.withValues(alpha: 0.3),
+          (context) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Currency display
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            currency.code,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            currency.name,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
+                  const SizedBox(height: 16),
+                  ActionButton(
+                    text: 'Confirm',
+                    onPressed: () async {
+                      // Get documents directory
+                      final directory =
+                          await getApplicationDocumentsDirectory();
+
+                      // Persist config (infallible)
+                      LnurlClient.persist(
+                        dataDir: directory.path,
+                        lnurl: lnurlWrapper,
+                        currencyCode: currency.code,
+                        currencySymbol: currency.symbol,
+                        currencyName: currency.name,
+                      );
+
+                      // Load the client from persisted config
+                      final client = LnurlClient.load(dataDir: directory.path);
+
+                      if (!context.mounted || client == null) return;
+
+                      Navigator.pop(context); // Close drawer
+
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) => AmountScreen(lnurlClient: client),
                         ),
-                        decoration: BoxDecoration(
-                          color: Colors.orange,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          currency.code,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Text(
-                          currency.name,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                ),
-                const SizedBox(height: 16),
-                ActionButton(
-                  text: 'Confirm',
-                  onPressed: () async {
-                    // Get documents directory
-                    final directory = await getApplicationDocumentsDirectory();
-
-                    // Persist config (infallible)
-                    LnurlClient.persist(
-                      dataDir: directory.path,
-                      lnurl: lnurlWrapper,
-                      currencyCode: currency.code,
-                      currencySymbol: currency.symbol,
-                      currencyName: currency.name,
-                    );
-
-                    // Load the client from persisted config
-                    final client = LnurlClient.load(dataDir: directory.path);
-
-                    if (!context.mounted || client == null) return;
-
-                    Navigator.pop(context); // Close drawer
-
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => AmountScreen(lnurlClient: client),
-                      ),
-                    );
-                  },
-                ),
-              ],
+                ],
+              ),
             ),
           ),
     );
