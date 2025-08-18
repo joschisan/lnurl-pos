@@ -11,6 +11,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [dependencies]
 flutter_rust_bridge = "=2.10.0"
+hex = "0.4.3"
 lightning-invoice = { version = "0.33.2", features = ["serde"] }
 lnurl-pay = "0.6.0"
 reqwest = { version = "0.12.23", features = ["json", "rustls-tls"], default-features = false }

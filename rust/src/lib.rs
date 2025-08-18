@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize)]
 #[flutter_rust_bridge::frb]
 pub struct Payment {
+    pub id: String,
     pub amount_fiat: i64,
     pub amount_msat: i64,
     pub created_at: i64, // Unix timestamp
@@ -57,8 +58,8 @@ fn init_database(data_dir: &str) -> Connection {
     let conn = Connection::open(format!("{data_dir}/data.sqlite")).unwrap();
 
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+        "CREATE TABLE IF NOT EXISTS payment (
+            id TEXT PRIMARY KEY,
             amount_fiat INTEGER NOT NULL,
             amount_msat INTEGER NOT NULL,
             created_at INTEGER NOT NULL
@@ -136,10 +137,11 @@ impl LnurlClient {
         self.db_conn
             .lock()
             .unwrap()
-            .prepare("SELECT * FROM payments ORDER BY id DESC")
+            .prepare("SELECT * FROM payment ORDER BY created_at DESC")
             .unwrap()
             .query_map([], |row| {
                 Ok(Payment {
+                    id: row.get(0)?,
                     amount_fiat: row.get(1)?,
                     amount_msat: row.get(2)?,
                     created_at: row.get(3)?,
@@ -156,7 +158,7 @@ impl LnurlClient {
         self.db_conn
             .lock()
             .unwrap()
-            .execute("DELETE FROM payments", [])
+            .execute("DELETE FROM payment", [])
             .unwrap();
     }
 
@@ -212,23 +214,48 @@ impl Invoice {
 
     #[flutter_rust_bridge::frb]
     pub async fn verify_payment(&self) -> Result<(), String> {
+        tokio::task::spawn(Self::verification_task(
+            self.verify.clone(),
+            self.invoice.payment_hash().to_string(),
+            self.amount_fiat,
+            self.amount_msat(),
+            self.db_conn.clone(),
+        ))
+        .await
+        .unwrap()
+    }
+
+    async fn verification_task(
+        verify: String,
+        payment_hash: String,
+        amount_fiat: i64,
+        amount_msat: i64,
+        db_conn: Arc<Mutex<Connection>>,
+    ) -> Result<(), String> {
         loop {
-            if let Ok(response) = self.fetch_response().await {
+            if let Ok(response) = Self::fetch_response(verify.clone()).await {
                 match response {
                     VerifyResponse::Ok(success) => {
-                        if success.settled {
-                            let created_at = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_millis() as i64;
+                        if !success.settled {
+                            continue;
+                        }
 
-                            self.db_conn.lock().unwrap().execute(
-                                "INSERT INTO payments (amount_fiat, amount_msat, created_at) VALUES (?1, ?2, ?3)",
-                                [self.amount_fiat, self.amount_msat(), created_at],
+                        let created_at = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as i64;
+
+                        db_conn.lock().unwrap().execute(
+                                "INSERT OR IGNORE INTO payment (id, amount_fiat, amount_msat, created_at) VALUES (?1, ?2, ?3, ?4)",
+                                rusqlite::params![
+                                    payment_hash,
+                                    amount_fiat,
+                                    amount_msat,
+                                    created_at,
+                                ],
                             ).unwrap();
 
-                            return Ok(());
-                        }
+                        return Ok(());
                     }
                     VerifyResponse::Error(error) => return Err(error.reason.clone()),
                 }
@@ -238,8 +265,8 @@ impl Invoice {
         }
     }
 
-    async fn fetch_response(&self) -> Result<VerifyResponse, String> {
-        reqwest::get(&self.verify)
+    async fn fetch_response(verify: String) -> Result<VerifyResponse, String> {
+        reqwest::get(&verify)
             .await
             .map_err(|_| "Failed to fetch verify callback response".to_string())?
             .json::<VerifyResponse>()
