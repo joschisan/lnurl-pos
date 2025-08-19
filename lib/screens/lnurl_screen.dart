@@ -9,21 +9,18 @@ import 'currency_screen.dart';
 Widget _buildQrScanner(
   MobileScannerController controller,
   void Function(BarcodeCapture) onDetect,
-) => Padding(
-  padding: const EdgeInsets.all(16.0),
-  child: LayoutBuilder(
-    builder: (context, constraints) {
-      final size = constraints.maxWidth;
-      return SizedBox(
-        width: size,
-        height: size,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: MobileScanner(controller: controller, onDetect: onDetect),
-        ),
-      );
-    },
-  ),
+) => LayoutBuilder(
+  builder: (context, constraints) {
+    final size = constraints.maxWidth;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: MobileScanner(controller: controller, onDetect: onDetect),
+      ),
+    );
+  },
 );
 
 TaskEither<String, String> _getClipboardText() {

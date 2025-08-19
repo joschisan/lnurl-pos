@@ -358,8 +358,9 @@ async fn resolve_amount_with_currency_code(
 
     let amount_in_btc = amount_in_usd / usd_to_btc_rate;
 
-    // Step 4: Convert BTC to millisatoshis (1 BTC = 100,000,000,000 msat)
-    let amount_msat = (amount_in_btc * 100_000_000_000.0).round() as u64;
+    // Step 4: Convert BTC to millisatoshis (1 BTC = 100,000,000,000 msat) but
+    // rounded to full satoshis to be compatible with blink's api
+    let amount_msat = (amount_in_btc * 100_000_000.0).round() as u64 * 1000;
 
     let response = reqwest::get(endpoint)
         .await
