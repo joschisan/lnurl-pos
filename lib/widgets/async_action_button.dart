@@ -21,30 +21,21 @@ class AsyncActionButton extends StatefulWidget {
 class _AsyncActionButtonState extends State<AsyncActionButton> {
   AsyncButtonState _state = AsyncButtonState.idle;
 
-  void _updateState(AsyncButtonState newState) {
-    if (!mounted) return;
-
-    setState(() => _state = newState);
-  }
-
-  void _showError(String message) {
-    if (!mounted) return;
-
-    NotificationUtils.showError(message);
-  }
-
   Future<void> _handlePress() async {
-    _updateState(AsyncButtonState.loading);
+    setState(() => _state = AsyncButtonState.loading);
 
     final result = await widget.onPressed().run();
 
+    if (!mounted) return;
+
     result.fold(
       (error) {
-        _updateState(AsyncButtonState.idle);
-        _showError(error);
+        setState(() => _state = AsyncButtonState.idle);
+
+        NotificationUtils.showError(error);
       },
       (_) {
-        _updateState(AsyncButtonState.idle);
+        setState(() => _state = AsyncButtonState.idle);
       },
     );
   }

@@ -174,10 +174,10 @@ class _AmountScreenState extends State<AmountScreen> {
 
     return safeTask(
       () => widget.lnurlClient.resolve(amountFiat: _amountFiat),
-    ).map((invoice) {
+    ).map((invoice) async {
       if (!mounted) return;
 
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute(
           builder:
@@ -185,10 +185,15 @@ class _AmountScreenState extends State<AmountScreen> {
                 lnurlClient: widget.lnurlClient,
                 amountFiat: _amountFiat,
                 invoice: invoice,
-                onClear: _onClear,
               ),
         ),
       );
+
+      if (!mounted) return;
+
+      setState(() {
+        _amountFiat = 0;
+      });
     });
   }
 }

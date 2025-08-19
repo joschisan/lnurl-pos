@@ -3,6 +3,7 @@ import 'package:pretty_qr_code/pretty_qr_code.dart';
 import '../bridge_generated.dart/lib.dart';
 import '../widgets/action_button.dart';
 import '../widgets/amount_display.dart';
+import '../utils/notification_utils.dart';
 
 enum PaymentStatus { pending, paid, failed }
 
@@ -10,14 +11,12 @@ class InvoiceScreen extends StatefulWidget {
   final LnurlClient lnurlClient;
   final int amountFiat;
   final Invoice invoice;
-  final VoidCallback onClear;
 
   const InvoiceScreen({
     super.key,
     required this.lnurlClient,
     required this.amountFiat,
     required this.invoice,
-    required this.onClear,
   });
 
   @override
@@ -41,13 +40,13 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
 
       if (!mounted) return;
 
-      widget.onClear();
-
       setState(() {
         _paymentStatus = PaymentStatus.paid;
       });
     } catch (e) {
       if (!mounted) return;
+
+      NotificationUtils.showError(e.toString());
 
       setState(() {
         _paymentStatus = PaymentStatus.failed;
@@ -56,87 +55,51 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
   }
 
   Widget _buildPaymentStatusBanner() {
-    switch (_paymentStatus) {
-      case PaymentStatus.pending:
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.orange.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+    return switch (_paymentStatus) {
+      PaymentStatus.pending => Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              color: Colors.orange,
+              strokeWidth: 2,
+            ),
           ),
-          child: Row(
-            children: [
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Waiting for payment...',
-                style: TextStyle(
-                  color: Colors.orange,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 18,
-                ),
-              ),
-            ],
+          const SizedBox(width: 12),
+          Text(
+            'Waiting for payment...',
+            style: TextStyle(
+              color: Colors.orange,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        );
-      case PaymentStatus.paid:
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.green.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+        ],
+      ),
+      PaymentStatus.paid => ActionButton(
+        text: 'Continue',
+        onPressed: () {
+          Navigator.pop(context);
+        },
+      ),
+      PaymentStatus.failed => Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error, color: Colors.red, size: 20),
+          const SizedBox(width: 12),
+          Text(
+            'Payment failed',
+            style: TextStyle(
+              color: Colors.red,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          child: const Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.green, size: 20),
-              SizedBox(width: 12),
-              Text(
-                'Payment received!',
-                style: TextStyle(
-                  color: Colors.green,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 18,
-                ),
-              ),
-            ],
-          ),
-        );
-      case PaymentStatus.failed:
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.red.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.error, color: Colors.red, size: 20),
-              SizedBox(width: 12),
-              Text(
-                'Payment failed',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 18,
-                ),
-              ),
-            ],
-          ),
-        );
-    }
+        ],
+      ),
+    };
   }
 
   void _showDismissConfirmationDrawer(BuildContext context) {
