@@ -326,12 +326,24 @@ async fn resolve_amount_with_currency_code(
     currency_code: String,
     amount_fiat: i64,
 ) -> Result<(Bolt11Invoice, String), String> {
-    let response = reqwest::get("https://price-feed.dev.fedibtc.com/latest")
-        .await
-        .map_err(|_| "Failed to fetch exchange rates".to_string())?
-        .json::<FediPriceResponse>()
-        .await
-        .map_err(|_| "Failed to parse exchange rates".to_string())?;
+    let (exchange_response, lnurl_response) = tokio::try_join!(
+        async {
+            reqwest::get("https://price-feed.dev.fedibtc.com/latest")
+                .await
+                .map_err(|_| "Failed to fetch exchange rates".to_string())?
+                .json::<FediPriceResponse>()
+                .await
+                .map_err(|_| "Failed to parse exchange rates".to_string())
+        },
+        async {
+            reqwest::get(&endpoint)
+                .await
+                .map_err(|_| "Failed to fetch LNURL response".to_string())?
+                .json::<LnUrlPayResponse>()
+                .await
+                .map_err(|_| "Failed to parse LNURL response".to_string())
+        }
+    )?;
 
     // Step 1: Convert minor units to major units (e.g., 1234 cents → 12.34 EUR)
     let amount_fiat = amount_fiat as f64 / 100.0;
@@ -340,7 +352,7 @@ async fn resolve_amount_with_currency_code(
     let amount_in_usd = if currency_code == "USD" {
         amount_fiat
     } else {
-        let currency_to_usd_rate = response
+        let currency_to_usd_rate = exchange_response
             .prices
             .get(&format!("{currency_code}/USD"))
             .ok_or("Selected currency not supported".to_string())?
@@ -350,7 +362,7 @@ async fn resolve_amount_with_currency_code(
     };
 
     // Step 3: Convert USD to BTC
-    let usd_to_btc_rate = response
+    let usd_to_btc_rate = exchange_response
         .prices
         .get("BTC/USD")
         .ok_or("BTC/USD rate not found".to_string())?
@@ -362,22 +374,15 @@ async fn resolve_amount_with_currency_code(
     // rounded to full satoshis to be compatible with blink's api
     let amount_msat = (amount_in_btc * 100_000_000.0).round() as u64 * 1000;
 
-    let response = reqwest::get(endpoint)
-        .await
-        .map_err(|_| "Failed to fetch LNURL response".to_string())?
-        .json::<LnUrlPayResponse>()
-        .await
-        .map_err(|_| "Failed to parse LNURL response".to_string())?;
-
-    if amount_msat < response.min_sendable {
+    if amount_msat < lnurl_response.min_sendable {
         return Err("Amount too low".to_string());
     }
 
-    if amount_msat > response.max_sendable {
+    if amount_msat > lnurl_response.max_sendable {
         return Err("Amount too high".to_string());
     }
 
-    let callback_url = format!("{}?amount={}", response.callback, amount_msat);
+    let callback_url = format!("{}?amount={}", lnurl_response.callback, amount_msat);
 
     let response = reqwest::get(callback_url)
         .await
