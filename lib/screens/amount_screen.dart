@@ -25,6 +25,8 @@ class _AmountScreenState extends State<AmountScreen> {
     setState(() {
       _amountFiat = (_amountFiat * 10) + value;
     });
+
+    widget.lnurlClient.updateCaches();
   }
 
   void _onBackspace() {

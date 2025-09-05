@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use lightning_invoice::Bolt11Invoice;
 use lnurl_pay::LnUrl;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[flutter_rust_bridge::frb]
@@ -43,7 +43,9 @@ pub struct LnurlClient {
     currency_code: String,
     currency_symbol: String,
     currency_name: String,
-    db_conn: Arc<Mutex<Connection>>,
+    db_conn: Arc<std::sync::Mutex<Connection>>,
+    exchange_rate: Arc<Mutex<Option<(FediPriceResponse, Instant)>>>,
+    lnurl_response: Arc<Mutex<Option<(LnUrlPayResponse, Instant)>>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -105,23 +107,42 @@ impl LnurlClient {
             currency_code: config.currency_code,
             currency_symbol: config.currency_symbol,
             currency_name: config.currency_name,
-            db_conn: Arc::new(Mutex::new(init_database(data_dir))),
+            db_conn: Arc::new(std::sync::Mutex::new(init_database(data_dir))),
+            exchange_rate: Arc::new(Mutex::new(None)),
+            lnurl_response: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// Update the exchange rate and LNURL response caches
+    #[flutter_rust_bridge::frb]
+    pub async fn update_caches(&self) {
+        tokio::task::spawn(fetch_exchange_rate(self.exchange_rate.clone()));
+
+        tokio::task::spawn(fetch_lnurl_response(
+            self.lnurl_response.clone(),
+            self.lnurl.endpoint(),
+        ));
     }
 
     /// Get an invoice for a given amount in minor units (e.g., cents)
     #[flutter_rust_bridge::frb]
     pub async fn resolve(&self, amount_fiat: i64) -> Result<Invoice, String> {
-        let (invoice, verify) = tokio::time::timeout(
+        tokio::time::timeout(
             Duration::from_secs(30),
-            resolve_amount_with_currency_code(
-                self.lnurl.endpoint(),
-                self.currency_code.clone(),
-                amount_fiat,
-            ),
+            self.resolve_without_timeout(amount_fiat),
         )
         .await
-        .map_err(|_| "Request timeout".to_string())??;
+        .map_err(|_| "Request timeout".to_string())?
+    }
+
+    pub async fn resolve_without_timeout(&self, amount_fiat: i64) -> Result<Invoice, String> {
+        let (invoice, verify) = resolve_amount_with_currency_code(
+            fetch_exchange_rate(self.exchange_rate.clone()).await?,
+            fetch_lnurl_response(self.lnurl_response.clone(), self.lnurl.endpoint()).await?,
+            self.currency_code.clone(),
+            amount_fiat,
+        )
+        .await?;
 
         Ok(Invoice {
             invoice,
@@ -198,7 +219,7 @@ pub struct Invoice {
     invoice: Bolt11Invoice,
     verify: String,
     amount_fiat: i64,
-    db_conn: Arc<Mutex<Connection>>,
+    db_conn: Arc<std::sync::Mutex<Connection>>,
 }
 
 impl Invoice {
@@ -230,7 +251,7 @@ impl Invoice {
         payment_hash: String,
         amount_fiat: i64,
         amount_msat: i64,
-        db_conn: Arc<Mutex<Connection>>,
+        db_conn: Arc<std::sync::Mutex<Connection>>,
     ) -> Result<(), String> {
         loop {
             if let Ok(response) = Self::fetch_response(verify.clone()).await {
@@ -321,30 +342,61 @@ pub struct VerifyError {
     pub reason: String,
 }
 
-async fn resolve_amount_with_currency_code(
+async fn fetch_exchange_rate(
+    cache: Arc<Mutex<Option<(FediPriceResponse, Instant)>>>,
+) -> Result<FediPriceResponse, String> {
+    let mut guard = cache.lock().await;
+
+    #[allow(clippy::collapsible_if)]
+    if let Some((value, timestamp)) = guard.as_ref() {
+        if timestamp.elapsed() < Duration::from_secs(600) {
+            return Ok(value.clone());
+        }
+    }
+
+    let value = reqwest::get("https://price-feed.dev.fedibtc.com/latest")
+        .await
+        .map_err(|_| "Failed to fetch exchange rates".to_string())?
+        .json::<FediPriceResponse>()
+        .await
+        .map_err(|_| "Failed to parse exchange rates".to_string())?;
+
+    *guard = Some((value.clone(), Instant::now()));
+
+    Ok(value)
+}
+
+async fn fetch_lnurl_response(
+    cache: Arc<Mutex<Option<(LnUrlPayResponse, Instant)>>>,
     endpoint: String,
+) -> Result<LnUrlPayResponse, String> {
+    let mut guard = cache.lock().await;
+
+    #[allow(clippy::collapsible_if)]
+    if let Some((value, timestamp)) = guard.as_ref() {
+        if timestamp.elapsed() < Duration::from_secs(600) {
+            return Ok(value.clone());
+        }
+    }
+
+    let value = reqwest::get(&endpoint)
+        .await
+        .map_err(|_| "Failed to fetch LNURL response".to_string())?
+        .json::<LnUrlPayResponse>()
+        .await
+        .map_err(|_| "Failed to parse LNURL response".to_string())?;
+
+    *guard = Some((value.clone(), Instant::now()));
+
+    Ok(value)
+}
+
+async fn resolve_amount_with_currency_code(
+    exchange_response: FediPriceResponse,
+    lnurl_response: LnUrlPayResponse,
     currency_code: String,
     amount_fiat: i64,
 ) -> Result<(Bolt11Invoice, String), String> {
-    let (exchange_response, lnurl_response) = tokio::try_join!(
-        async {
-            reqwest::get("https://price-feed.dev.fedibtc.com/latest")
-                .await
-                .map_err(|_| "Failed to fetch exchange rates".to_string())?
-                .json::<FediPriceResponse>()
-                .await
-                .map_err(|_| "Failed to parse exchange rates".to_string())
-        },
-        async {
-            reqwest::get(&endpoint)
-                .await
-                .map_err(|_| "Failed to fetch LNURL response".to_string())?
-                .json::<LnUrlPayResponse>()
-                .await
-                .map_err(|_| "Failed to parse LNURL response".to_string())
-        }
-    )?;
-
     // Step 1: Convert minor units to major units (e.g., 1234 cents → 12.34 EUR)
     let amount_fiat = amount_fiat as f64 / 100.0;
 
