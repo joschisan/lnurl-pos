@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../bridge_generated.dart/lib.dart';
 import '../widgets/action_button.dart';
 import '../widgets/amount_display.dart';
@@ -176,6 +179,33 @@ class _CashupScreenState extends State<CashupScreen> {
     );
   }
 
+  Future<void> _shareTransactions(BuildContext context) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+
+      // Let Rust create the file and return path
+      final filePath = widget.lnurlClient.exportTransactionsToFile(
+        outputDir: directory.path,
+      );
+
+      // Share the file using the returned path
+      final fileName = filePath.split('/').last;
+
+      await Share.shareXFiles(
+        [XFile(filePath, name: fileName, mimeType: 'application/json')],
+        text: 'Cashup transaction summary',
+        subject: 'Transaction Summary - $fileName',
+        sharePositionOrigin: Rect.zero,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final payments = widget.lnurlClient.listPayments();
@@ -183,6 +213,10 @@ class _CashupScreenState extends State<CashupScreen> {
     return Scaffold(
       appBar: AppBar(
         actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: () => _shareTransactions(context),
+          ),
           IconButton(
             icon: const Icon(Icons.delete),
             onPressed: () => _showDeleteConfirmationDrawer(context),

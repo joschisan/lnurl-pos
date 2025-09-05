@@ -10,6 +10,7 @@ crate-type = ["cdylib", "staticlib"]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [dependencies]
+chrono = "0.4.41"
 flutter_rust_bridge = "=2.10.0"
 hex = "0.4.3"
 lightning-invoice = { version = "0.33.2", features = ["serde"] }
