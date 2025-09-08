@@ -9,7 +9,6 @@ use lightning_invoice::Bolt11Invoice;
 use lnurl_pay::LnUrl;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json, to_string_pretty};
 use tokio::sync::Mutex;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -215,43 +214,57 @@ impl LnurlClient {
         self.currency_name.clone()
     }
 
-    /// Export transactions to a JSON file and return the file path
+    /// Export transactions to a CSV file and return the file path
     #[flutter_rust_bridge::frb(sync)]
     pub fn export_transactions_to_file(&self, output_dir: &str) -> Result<String, String> {
-        let json_content = self.export_transactions_json();
+        let csv_content = self.export_transactions_csv();
 
-        let filename = format!("cashup_{}.json", chrono::Utc::now().format("%Y-%m-%d"));
+        let filename = format!("cashup_{}.csv", Local::now().format("%Y-%m-%d"));
 
         let file_path = format!("{}/{}", output_dir, filename);
 
-        std::fs::write(&file_path, json_content)
+        std::fs::write(&file_path, csv_content)
             .map_err(|e| format!("Failed to write file: {}", e))?;
 
         Ok(file_path)
     }
 
-    fn export_transactions_json(&self) -> String {
-        let export_data = json!({
-            "total_payments": self.list_payments().len(),
-            "total_fiat_amount": self.sum_amounts_fiat() as f64 / 100.0,
-            "total_sats_amount": self.sum_amounts_msat() / 1000,
-            "currency_symbol": self.currency_symbol(),
-            "currency_code": self.currency_code(),
-            "export_date": Local::now().format("%B %d, %Y at %H:%M").to_string(),
-            "payments": self.list_payments().iter().map(|p| {
-                json!({
-                    "amount_fiat": p.amount_fiat as f64 / 100.0,
-                    "amount_sats": p.amount_msat / 1000,
-                    "date": DateTime::from_timestamp(p.created_at / 1000, 0)
-                        .unwrap_or_default()
-                        .with_timezone(&Local)
-                        .format("%B %d, %Y at %H:%M")
-                        .to_string()
-                })
-            }).collect::<Vec<Value>>()
-        });
+    /// Export transactions as CSV with aligned formatting
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn export_transactions_csv(&self) -> String {
+        let mut csv = String::new();
 
-        to_string_pretty(&export_data).unwrap()
+        // Payment details with header
+        csv.push_str(&format!(
+            "Nr,{},Satoshis,Sum-{},Sum-Satoshis,Date\n",
+            self.currency_code(),
+            self.currency_code()
+        ));
+
+        let mut sum_amount_fiat: i64 = 0;
+        let mut sum_amount_msat: i64 = 0;
+
+        for (index, payment) in self.list_payments().iter().enumerate() {
+            let date = DateTime::from_timestamp(payment.created_at / 1000, 0)
+                .unwrap_or_default()
+                .with_timezone(&Local)
+                .format("%B-%d-%H:%M");
+
+            sum_amount_fiat += payment.amount_fiat;
+            sum_amount_msat += payment.amount_msat;
+
+            csv.push_str(&format!(
+                "{},{:.2},{},{:.2},{},{}\n",
+                index + 1,
+                payment.amount_fiat as f64 / 100.0,
+                payment.amount_msat / 1000,
+                sum_amount_fiat as f64 / 100.0,
+                sum_amount_msat / 1000,
+                date
+            ));
+        }
+
+        csv
     }
 }
 
