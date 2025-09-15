@@ -1,11 +1,13 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
 import '../bridge_generated.dart/lib.dart';
 import '../widgets/action_button.dart';
 import '../widgets/amount_display.dart';
+import '../utils/notification_utils.dart';
 
 class CashupScreen extends StatefulWidget {
   final LnurlClient lnurlClient;
@@ -179,30 +181,27 @@ class _CashupScreenState extends State<CashupScreen> {
     );
   }
 
-  Future<void> _shareTransactions(BuildContext context) async {
+  Future<void> _saveTransactions(BuildContext context) async {
     try {
-      final directory = await getApplicationDocumentsDirectory();
+      // Get CSV content directly from Rust backend
+      final csvContent = widget.lnurlClient.exportTransactionsCsv();
 
-      // Let Rust create the file and return path
-      final filePath = widget.lnurlClient.exportTransactionsToFile(
-        outputDir: directory.path,
-      );
+      // Convert string to bytes
+      final bytes = Uint8List.fromList(csvContent.codeUnits);
 
-      // Share the file using the returned path
-      final fileName = filePath.split('/').last;
+      // Format date for filename
+      final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-      await Share.shareXFiles(
-        [XFile(filePath, name: fileName, mimeType: 'application/json')],
-        text: 'Cashup transaction summary',
-        subject: 'Transaction Summary - $fileName',
-        sharePositionOrigin: Rect.zero,
+      // Let user pick save location with bytes for mobile compatibility
+      final String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Transaction Summary',
+        fileName: 'cashup-$date.csv',
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        bytes: bytes,
       );
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
-      }
+      NotificationUtils.showError('Failed to save: $e');
     }
   }
 
@@ -214,8 +213,8 @@ class _CashupScreenState extends State<CashupScreen> {
       appBar: AppBar(
         actions: [
           IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: () => _shareTransactions(context),
+            icon: const Icon(Icons.save),
+            onPressed: () => _saveTransactions(context),
           ),
           IconButton(
             icon: const Icon(Icons.delete),

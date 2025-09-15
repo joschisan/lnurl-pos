@@ -35,7 +35,7 @@ dependencies:
   path_provider: ^2.1.4
   intl: ^0.20.2
   currency_picker: ^2.0.21
-  share_plus: ^7.2.2
+  file_picker: ^8.1.2
 
 dev_dependencies:
   flutter_test:
