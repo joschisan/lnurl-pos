@@ -4,6 +4,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bitcoin_hashes::Hash;
+use bitcoin_hashes::sha256;
 use chrono::{DateTime, Local};
 use lightning_invoice::Bolt11Invoice;
 use lnurl_pay::LnUrl;
@@ -277,7 +279,7 @@ impl Invoice {
     pub async fn verify_payment(&self) -> Result<(), String> {
         tokio::task::spawn(Self::verification_task(
             self.verify.clone(),
-            self.invoice.payment_hash().to_string(),
+            self.invoice.payment_hash().clone(),
             self.amount_fiat,
             self.amount_msat(),
             self.db_conn.clone(),
@@ -289,7 +291,7 @@ impl Invoice {
 
     async fn verification_task(
         verify: String,
-        payment_hash: String,
+        payment_hash: sha256::Hash,
         amount_fiat: i64,
         amount_msat: i64,
         db_conn: Arc<std::sync::Mutex<Connection>>,
@@ -302,6 +304,17 @@ impl Invoice {
                 match response {
                     VerifyResponse::Ok(success) => {
                         if success.settled {
+                            let preimage = success
+                                .preimage
+                                .ok_or("Response is missing preimage".to_string())?;
+
+                            let preimage = hex_conservative::decode_to_array::<32>(&preimage)
+                                .map_err(|_| "Response preimage hex is invalid".to_string())?;
+
+                            if sha256::Hash::hash(&preimage) != payment_hash {
+                                return Err("Response preimage hash is invalid".to_string());
+                            }
+
                             let created_at = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap()
@@ -310,7 +323,7 @@ impl Invoice {
                             db_conn.lock().unwrap().execute(
                                 "INSERT OR IGNORE INTO payment (id, amount_fiat, amount_msat, created_at) VALUES (?1, ?2, ?3, ?4)",
                                 rusqlite::params![
-                                    payment_hash,
+                                    payment_hash.to_string(),
                                     amount_fiat,
                                     amount_msat,
                                     created_at,

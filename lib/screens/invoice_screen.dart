@@ -90,7 +90,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
           Icon(Icons.error, color: Colors.red, size: 20),
           const SizedBox(width: 12),
           Text(
-            'Payment failed',
+            'Verification failed',
             style: TextStyle(
               color: Colors.red,
               fontSize: 16,
