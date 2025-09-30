@@ -10,6 +10,7 @@ use lnurl_pay::LnUrl;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[flutter_rust_bridge::frb]
@@ -214,21 +215,6 @@ impl LnurlClient {
         self.currency_name.clone()
     }
 
-    /// Export transactions to a CSV file and return the file path
-    #[flutter_rust_bridge::frb(sync)]
-    pub fn export_transactions_to_file(&self, output_dir: &str) -> Result<String, String> {
-        let csv_content = self.export_transactions_csv();
-
-        let filename = format!("cashup_{}.csv", Local::now().format("%Y-%m-%d"));
-
-        let file_path = format!("{}/{}", output_dir, filename);
-
-        std::fs::write(&file_path, csv_content)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
-
-        Ok(file_path)
-    }
-
     /// Export transactions as CSV with aligned formatting
     #[flutter_rust_bridge::frb(sync)]
     pub fn export_transactions_csv(&self) -> String {
@@ -295,6 +281,7 @@ impl Invoice {
             self.amount_fiat,
             self.amount_msat(),
             self.db_conn.clone(),
+            self.invoice.expiry_time(),
         ))
         .await
         .unwrap()
@@ -306,21 +293,21 @@ impl Invoice {
         amount_fiat: i64,
         amount_msat: i64,
         db_conn: Arc<std::sync::Mutex<Connection>>,
+        expiry_time: Duration,
     ) -> Result<(), String> {
-        loop {
+        let start_time = Instant::now();
+
+        while start_time.elapsed() < expiry_time {
             if let Ok(response) = Self::fetch_response(verify.clone()).await {
                 match response {
                     VerifyResponse::Ok(success) => {
-                        if !success.settled {
-                            continue;
-                        }
+                        if success.settled {
+                            let created_at = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as i64;
 
-                        let created_at = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as i64;
-
-                        db_conn.lock().unwrap().execute(
+                            db_conn.lock().unwrap().execute(
                                 "INSERT OR IGNORE INTO payment (id, amount_fiat, amount_msat, created_at) VALUES (?1, ?2, ?3, ?4)",
                                 rusqlite::params![
                                     payment_hash,
@@ -330,14 +317,17 @@ impl Invoice {
                                 ],
                             ).unwrap();
 
-                        return Ok(());
-                    }
-                    VerifyResponse::Error(error) => return Err(error.reason.clone()),
-                }
-            }
+                            return Ok(());
+                        }
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                    VerifyResponse::Error(..) => sleep(Duration::from_secs(10)).await,
+                }
+            };
         }
+
+        Err("Invoice expired".to_string())
     }
 
     async fn fetch_response(verify: String) -> Result<VerifyResponse, String> {
